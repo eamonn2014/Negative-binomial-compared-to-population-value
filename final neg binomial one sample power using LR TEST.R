@@ -1,5 +1,3 @@
-# addinf LRTEST fro GROK
-
 # Clear environment and set seed for reproducibility
 rm(list=ls())
 set.seed(1234)
@@ -49,8 +47,25 @@ lr_test <- function(x, mu0 = 1, fup = 1) {
     warning = function(w) return(NULL)
   )
   if (is.null(mod_alt)) return(FALSE)
-  theta <- mod_alt$theta
+  theta <- mod_alt$theta  # Variable theta from alternative model
   ll_null <- sum(dnbinom(x, size = theta, mu = mu0 * fup, log = TRUE))
+  ll_alt <- logLik(mod_alt)
+  lr_stat <- 2 * (ll_alt - ll_null)
+  p_value <- pchisq(lr_stat, df = 1, lower.tail = FALSE) / 2
+  return(p_value < alpha)
+}
+
+#------------------------------------------------------------------------------------
+lr_test_fixed <- function(x, mu0 = 1, fup = 1) {
+  logtime <- rep(log(fup), length(x))
+  mod_alt <- tryCatch(
+    glm.nb(x ~ 1 + offset(logtime)),
+    error = function(e) return(NULL),
+    warning = function(w) return(NULL)
+  )
+  if (is.null(mod_alt)) return(FALSE)
+  theta_fixed <- 1.78  # Fixed theta (true dispersion)
+  ll_null <- sum(dnbinom(x, size = theta_fixed, mu = mu0 * fup, log = TRUE))
   ll_alt <- logLik(mod_alt)
   lr_stat <- 2 * (ll_alt - ll_null)
   p_value <- pchisq(lr_stat, df = 1, lower.tail = FALSE) / 2
@@ -74,6 +89,11 @@ calc_power <- function(n, dist = "poisson") {
       x <- rnbinom(n, size = r1, mu = true_mean)
       lr_test(x)
     })
+  } else if (dist == "nb_lr_fixed") {
+    rejections <- replicate(nsim, {
+      x <- rnbinom(n, size = r1, mu = true_mean)
+      lr_test_fixed(x)
+    })
   }
   power <- mean(rejections, na.rm = TRUE)
   cat(sprintf("n = %d, %s power = %.3f, NA count = %d\n", 
@@ -86,26 +106,35 @@ n_range <- seq(40, 100, by = 5)
 poisson_powers <- sapply(n_range, calc_power, dist = "poisson")
 nb_wald_powers <- sapply(n_range, calc_power, dist = "nb_wald")
 nb_lr_powers <- sapply(n_range, calc_power, dist = "nb_lr")
+nb_lr_fixed_powers <- sapply(n_range, calc_power, dist = "nb_lr_fixed")
 
-# Find n where power >= 0.8 (interpolate if needed)
+# Find n where power >= 0.8
 poisson_n <- n_range[min(which(poisson_powers >= 0.8))]
 nb_wald_n <- n_range[min(which(nb_wald_powers >= 0.8))]
 nb_lr_n <- n_range[min(which(nb_lr_powers >= 0.8))]
+nb_lr_fixed_n <- n_range[min(which(nb_lr_fixed_powers >= 0.8))]
 
 # Results
 cat("Poisson: n =", poisson_n, "Power =", round(poisson_powers[which(n_range == poisson_n)], 3), "\n")
 cat("Neg Bin Wald (r = 1.78): n =", nb_wald_n, "Power =", round(nb_wald_powers[which(n_range == nb_wald_n)], 3), "\n")
 cat("Neg Bin LR (r = 1.78): n =", nb_lr_n, "Power =", round(nb_lr_powers[which(n_range == nb_lr_n)], 3), "\n")
+cat("Neg Bin LR Fixed θ (r = 1.78): n =", nb_lr_fixed_n, "Power =", 
+    round(nb_lr_fixed_powers[which(n_range == nb_lr_fixed_n)], 3), "\n")
 
-# Plot power curves
+# Plot power curves with fourth curve (purple)
 plot(n_range, poisson_powers, type = "l", col = "green", ylim = c(0, 1),
      xlab = "Sample Size (n)", ylab = "Empirical Power",
      main = "Power vs. Sample Size (alpha = 0.01, μ = 0.58)")
 lines(n_range, nb_wald_powers, col = "blue")
 lines(n_range, nb_lr_powers, col = "red")
+lines(n_range, nb_lr_fixed_powers, col = "purple")
 abline(h = 0.8, lty = 2)
-legend("bottomright", legend = c("Poisson (λ = 0.58)", "NB Wald (r = 1.78)", "NB LR (r = 1.78)"),
-       col = c("green", "blue", "red"), lty = 1)
+legend("bottomright", 
+       legend = c("Poisson (λ = 0.58)", "NB Wald (r = 1.78)", 
+                  "NB LR (r = 1.78)", "NB LR Fixed θ (r = 1.78)"),
+       col = c("green", "blue", "red", "purple"), lty = 1)
+
+
 
 
 
